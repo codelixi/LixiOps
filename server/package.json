@@ -15,7 +15,7 @@
     "db:seed:demo": "tsx prisma/seed.ts --demo"
   },
   "engines": {
-    "node": ">=20"
+    "node": "20.x"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
