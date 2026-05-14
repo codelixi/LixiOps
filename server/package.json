@@ -5,8 +5,11 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "postinstall": "prisma generate",
-    "build": "prisma generate && tsc",
-    "start": "node dist/index.js",
+    "build": "prisma generate",
+    "build:check": "tsc --noEmit",
+    "start": "tsx src/index.ts",
+    "start:compiled": "node dist/index.js",
+    "build:compile": "prisma generate && tsc",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
@@ -37,6 +40,7 @@
     "resend": "^6.12.3",
     "socket.io": "^4.8.1",
     "stripe": "^22.0.1",
+    "tsx": "^4.19.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {
@@ -48,7 +52,6 @@
     "@types/node": "^22.13.10",
     "@types/qrcode": "^1.5.6",
     "prisma": "^6.5.0",
-    "tsx": "^4.19.3",
     "typescript": "^5.7.3"
   }
 }

@@ -1,0 +1,43 @@
+# Force LF line endings in the repo for all text/source files.
+# Critical for cross-platform builds — some Linux tools choke on
+# CRLF in TS/JS/JSON files committed from Windows.
+# Renormalize after adding this file: `git add --renormalize .`
+
+* text=auto eol=lf
+
+# Source
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+
+# Config / data
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.env.example text eol=lf
+*.gitignore text eol=lf
+*.gitattributes text eol=lf
+
+# Shell
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Prisma
+*.prisma text eol=lf
+
+# Binary — never touch
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
