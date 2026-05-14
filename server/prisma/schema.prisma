@@ -1,0 +1,1426 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════
+// 1. USERS & AUTH
+// ═══════════════════════════════════════════
+
+enum UserRole {
+  CEO
+  MANAGER
+  EMPLOYEE
+  CLIENT
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         UserRole
+  phone        String?
+  avatar       String?
+  departmentId String?
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  department          Department?          @relation(fields: [departmentId], references: [id])
+  devices             DeviceFingerprint[]
+  sessions            Session[]
+  auditLogs           AuditLog[]
+  broadcasts          Broadcast[]          @relation("BroadcastAuthor")
+  receivedBroadcasts  BroadcastReceipt[]
+  leads               Lead[]               @relation("LeadRep")
+  leadActivities      LeadActivity[]
+  tasks               Task[]               @relation("TaskAssignee")
+  createdTasks        Task[]               @relation("TaskCreator")
+  timeEntries         TimeEntry[]
+  codeReviews         CodeReview[]         @relation("CodeReviewer")
+  codeReviewsAuthored CodeReview[]         @relation("CodeReviewAuthor")
+  deploys             Deploy[]
+  designBriefs        DesignBrief[]
+  revisions           Revision[]
+  approvalActions     ApprovalAction[]
+  documents           Document[]
+  invoicesCreated     Invoice[]
+  attendances         AttendanceSession[]
+  leaveRequests       LeaveRequest[]
+  performanceScores   PerformanceScore[]
+  warnings            Warning[]
+  salaryRecords       SalaryRecord[]
+  onboardingSteps     OnboardingStep[]
+  scopeChanges        ScopeChange[]
+  pulseResponses      PulseResponse[]
+  taskRecommendations TaskRecommendation[]
+  meetings            MeetingParticipant[]
+  decisionLogs        DecisionLog[]
+  knowledgeArticles   KnowledgeArticle[]
+  riskEntries         Risk[]
+  biometricProfile    BiometricProfile?
+  contractorProfile   ContractorProfile?
+  notifications       Notification[]
+
+  @@index([email])
+  @@index([role])
+  @@index([departmentId])
+}
+
+model DeviceFingerprint {
+  id          String   @id @default(cuid())
+  userId      String
+  fingerprint String
+  userAgent   String
+  lastUsedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fingerprint])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+// ═══════════════════════════════════════════
+// 2. COMPANY & DEPARTMENTS
+// ═══════════════════════════════════════════
+
+model CompanySettings {
+  id                  String   @id @default(cuid())
+  name                String
+  address             String?
+  email               String?
+  phone               String?
+  website             String?
+  tagline             String?
+  timezone            String   @default("America/Chicago")
+  currency            String   @default("USD")
+  taxRate             Float    @default(0)
+  dateFormat          String   @default("MM/DD/YYYY")
+  logo                String?
+  brandColors         Json?
+  primaryFont         String?
+  sessionTimeoutHours Int      @default(8)
+  lateGracePeriodMin  Int      @default(15)
+  idleThresholdMin    Int      @default(120)
+  minProfitMargin     Float    @default(50)
+  updatedAt           DateTime @updatedAt
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  headId      String?
+  budget      Float    @default(0)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members User[]
+  okrs    OKR[]
+  tasks   Task[]
+}
+
+model OKR {
+  id           String   @id @default(cuid())
+  departmentId String
+  quarter      String
+  year         Int
+  objective    String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  department Department  @relation(fields: [departmentId], references: [id])
+  keyResults KeyResult[]
+
+  @@index([departmentId, quarter, year])
+}
+
+model KeyResult {
+  id      String @id @default(cuid())
+  okrId   String
+  title   String
+  target  Float
+  current Float  @default(0)
+  unit    String @default("%")
+
+  okr OKR @relation(fields: [okrId], references: [id], onDelete: Cascade)
+}
+
+// ═══════════════════════════════════════════
+// 3. SALES & LEADS
+// ═══════════════════════════════════════════
+
+enum LeadStage {
+  PROSPECT
+  CONTACTED
+  PROPOSAL_SENT
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+model Lead {
+  id                   String    @id @default(cuid())
+  company              String
+  contactName          String
+  email                String?
+  phone                String?
+  vertical             String?
+  source               String?
+  stage                LeadStage @default(PROSPECT)
+  repId                String?
+  aiScore              Int?
+  researchNotes        String?
+  referralSource       String?
+  value                Float     @default(0)
+  // Deal fields (populated as lead progresses)
+  agreedValue          Float?
+  contractStartDate    DateTime?
+  proposalSentAt       DateTime?
+  negotiationStartedAt DateTime?
+  closedWonAt          DateTime?
+  closedLostAt         DateTime?
+  closedLostReason     String?
+  convertedClientId    String?   @unique
+  convertedProjectId   String?   @unique
+  lastActivityAt       DateTime  @default(now())
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  rep              User?          @relation("LeadRep", fields: [repId], references: [id])
+  activities       LeadActivity[]
+  meetings         Meeting[]
+  proposals        Proposal[]
+  convertedProject Project?       @relation("LeadConvertedProject")
+
+  @@index([stage])
+  @@index([repId])
+  @@index([lastActivityAt])
+}
+
+model LeadActivity {
+  id        String   @id @default(cuid())
+  leadId    String
+  userId    String
+  type      String // call, email, meeting, note
+  text      String
+  createdAt DateTime @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([leadId])
+}
+
+model Meeting {
+  id               String   @id @default(cuid())
+  leadId           String?
+  clientId         String?
+  title            String
+  type             String // client_call, internal, sales_discovery, project_review, all_hands, one_on_one
+  date             DateTime
+  duration         Int? // minutes
+  outcome          String?
+  joinLink         String?
+  showRate         Boolean?
+  calendarEventId  String?
+  transcriptStatus String? // pending, processing, completed
+  sentimentScore   Float?
+  createdAt        DateTime @default(now())
+
+  lead         Lead?                @relation(fields: [leadId], references: [id])
+  client       Client?              @relation(fields: [clientId], references: [id])
+  participants MeetingParticipant[]
+  summary      MeetingSummary?
+  transcript   MeetingTranscript?
+  actionItems  MeetingActionItem[]
+
+  @@index([date])
+}
+
+model MeetingParticipant {
+  id        String @id @default(cuid())
+  meetingId String
+  userId    String
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([meetingId, userId])
+}
+
+model MeetingSummary {
+  id            String   @id @default(cuid())
+  meetingId     String   @unique
+  tldr          String
+  decisions     Json // string[]
+  openQuestions Json // string[]
+  topicTags     Json // string[]
+  sentiment     String // positive, neutral, negative
+  createdAt     DateTime @default(now())
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+model MeetingTranscript {
+  id        String   @id @default(cuid())
+  meetingId String   @unique
+  content   String // encrypted
+  speakers  Json
+  createdAt DateTime @default(now())
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+model MeetingActionItem {
+  id        String    @id @default(cuid())
+  meetingId String
+  title     String
+  assignee  String?
+  dueDate   DateTime?
+  taskId    String? // linked task if created
+  status    String    @default("pending")
+  createdAt DateTime  @default(now())
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+// ═══════════════════════════════════════════
+// 4. PROJECTS & TASKS
+// ═══════════════════════════════════════════
+
+enum ProjectHealth {
+  ON_TRACK
+  AT_RISK
+  DELAYED
+  COMPLETED
+}
+
+model Client {
+  id               String   @id @default(cuid())
+  company          String
+  contactName      String
+  email            String   @unique
+  phone            String?
+  vertical         String?
+  status           String   @default("active")
+  contractValue    Float    @default(0)
+  referredById     String?
+  healthScore      Int?
+  npsScore         Int?
+  portalPassword   String?
+  whiteLabel       Boolean  @default(false)
+  whiteLabelLogo   String?
+  whiteLabelColors Json?
+  whiteLabelDomain String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  projects            Project[]
+  invoices            Invoice[]
+  interactions        ClientInteraction[]
+  meetings            Meeting[]
+  documents           Document[]
+  onboardingChecklist ClientOnboardingItem[]
+  slaMetrics          SLAMetric[]
+  retainerTracking    RetainerTracking?
+  emailThreads        EmailThread[]
+  npsSurveys          NPSSurvey[]
+  healthRecords       ClientHealthRecord[]
+  contracts           Contract[]
+
+  @@index([status])
+}
+
+model Project {
+  id            String        @id @default(cuid())
+  name          String
+  clientId      String
+  leadId        String?       @unique // The originating Deal (Lead in CLOSED_WON). Required for all new projects via API; nullable here for legacy/migration.
+  templateId    String?
+  health        ProjectHealth @default(ON_TRACK)
+  progress      Float         @default(0)
+  contractValue Float         @default(0)
+  startDate     DateTime?
+  goLiveDate    DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  client        Client                @relation(fields: [clientId], references: [id])
+  lead          Lead?                 @relation("LeadConvertedProject", fields: [leadId], references: [id])
+  milestones    Milestone[]
+  tasks         Task[]
+  risks         Risk[]
+  scopeChanges  ScopeChange[]
+  profitability ProjectProfitability?
+  deployLogs    Deploy[]
+  invoices      Invoice[]
+
+  @@index([clientId])
+  @@index([health])
+}
+
+model ProjectTemplate {
+  id         String   @id @default(cuid())
+  name       String
+  vertical   String
+  phases     Json // phase definitions
+  tasks      Json // task templates
+  milestones Json // milestone templates
+  duration   Int // weeks
+  createdAt  DateTime @default(now())
+}
+
+model Milestone {
+  id               String    @id @default(cuid())
+  projectId        String
+  title            String
+  phase            String?
+  isComplete       Boolean   @default(false)
+  completedAt      DateTime?
+  dueDate          DateTime?
+  invoiceTriggered Boolean   @default(false)
+  sortOrder        Int       @default(0)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model Task {
+  id                  String    @id @default(cuid())
+  title               String
+  description         String?
+  projectId           String?
+  departmentId        String?
+  assigneeId          String?
+  creatorId           String?
+  priority            String    @default("medium") // critical, high, medium, low
+  status              String    @default("todo") // todo, in_progress, in_review, done
+  estimatedHours      Float?
+  actualHours         Float?
+  dueDate             DateTime?
+  sprintId            String?
+  blockedBy           String? // task id
+  isRecurring         Boolean   @default(false)
+  recurringTemplateId String?
+  completedAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  project      Project?         @relation(fields: [projectId], references: [id])
+  department   Department?      @relation(fields: [departmentId], references: [id])
+  assignee     User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creator      User?            @relation("TaskCreator", fields: [creatorId], references: [id])
+  timeEntries  TimeEntry[]
+  dependencies TaskDependency[] @relation("DependentTask")
+  dependents   TaskDependency[] @relation("PrerequisiteTask")
+
+  @@index([assigneeId])
+  @@index([projectId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+model TaskDependency {
+  id             String @id @default(cuid())
+  taskId         String
+  prerequisiteId String
+
+  task         Task @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
+  prerequisite Task @relation("PrerequisiteTask", fields: [prerequisiteId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, prerequisiteId])
+}
+
+model RecurringTaskTemplate {
+  id           String    @id @default(cuid())
+  title        String
+  description  String?
+  departmentId String?
+  assigneeRule String? // specific user id or "rotation"
+  schedule     String // cron expression
+  isActive     Boolean   @default(true)
+  lastFiredAt  DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+model TimeEntry {
+  id        String   @id @default(cuid())
+  taskId    String
+  userId    String
+  hours     Float
+  note      String?
+  date      DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([taskId])
+  @@index([userId])
+}
+
+// ═══════════════════════════════════════════
+// 5. DEVELOPMENT
+// ═══════════════════════════════════════════
+
+model Sprint {
+  id        String   @id @default(cuid())
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  velocity  Int?
+  createdAt DateTime @default(now())
+}
+
+model Bug {
+  id         String    @id @default(cuid())
+  bugId      String    @unique // BUG-001 format
+  title      String
+  priority   String // critical, high, medium, low
+  source     String?
+  assigneeId String?
+  projectId  String?
+  status     String    @default("open") // open, in_progress, resolved, closed
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([status])
+  @@index([priority])
+}
+
+model CodeReview {
+  id          String   @id @default(cuid())
+  taskId      String?
+  authorId    String
+  reviewerId  String?
+  status      String   @default("pending") // pending, approved, changes_requested
+  comment     String?
+  lineChanges Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  author   User  @relation("CodeReviewAuthor", fields: [authorId], references: [id])
+  reviewer User? @relation("CodeReviewer", fields: [reviewerId], references: [id])
+}
+
+model Deploy {
+  id          String   @id @default(cuid())
+  environment String // PROD, STAGING, HOTFIX
+  version     String
+  projectId   String?
+  developerId String
+  changelog   String?
+  uptime      String?
+  createdAt   DateTime @default(now())
+
+  project   Project? @relation(fields: [projectId], references: [id])
+  developer User     @relation(fields: [developerId], references: [id])
+}
+
+// ═══════════════════════════════════════════
+// 6. DESIGN
+// ═══════════════════════════════════════════
+
+model DesignBrief {
+  id             String    @id @default(cuid())
+  clientId       String?
+  objective      String
+  deliverable    String
+  brandRefs      String?
+  designerId     String?
+  estimatedHours Float?
+  dueDate        DateTime?
+  status         String    @default("open")
+  createdAt      DateTime  @default(now())
+
+  designer User? @relation(fields: [designerId], references: [id])
+}
+
+model Asset {
+  id         String   @id @default(cuid())
+  clientId   String
+  fileName   String
+  fileType   String
+  fileSize   Int
+  url        String
+  version    Int      @default(1)
+  uploadedAt DateTime @default(now())
+
+  annotations AssetAnnotation[]
+}
+
+model AssetAnnotation {
+  id        String   @id @default(cuid())
+  assetId   String
+  authorId  String?
+  content   String
+  position  Json? // { x, y, section }
+  createdAt DateTime @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+}
+
+// Polymorphic file attachment table. Any entity (DOCUMENT, COMMENT, PROJECT,
+// TASK, INVOICE, CLIENT, etc.) can have multiple attachments. Storage backend
+// is abstracted — see server/src/lib/storage.ts.
+model Attachment {
+  id           String   @id @default(cuid())
+  entityType   String // DOCUMENT, COMMENT, PROJECT, TASK, INVOICE, CLIENT, LEAD
+  entityId     String
+  fileName     String
+  fileType     String // MIME type
+  fileSize     Int // bytes
+  storageKey   String // path/key in the storage backend
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([uploadedById])
+}
+
+model Revision {
+  id          String   @id @default(cuid())
+  projectId   String?
+  version     Int
+  requestedBy String?
+  notes       String?
+  status      String   @default("pending")
+  cost        Float?
+  createdAt   DateTime @default(now())
+
+  requester User? @relation(fields: [requestedBy], references: [id])
+}
+
+model ApprovalAction {
+  id         String   @id @default(cuid())
+  entityType String // design, document, scope_change
+  entityId   String
+  stage      String // designer, manager, ceo, client
+  userId     String
+  action     String // approved, sent_back
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([entityType, entityId])
+}
+
+model BrandKit {
+  id              String   @id @default(cuid())
+  clientId        String   @unique
+  primaryColor    String?
+  secondaryColor  String?
+  backgroundColor String?
+  font            String?
+  logo            String?
+  updatedAt       DateTime @updatedAt
+}
+
+// ═══════════════════════════════════════════
+// 7. OPERATIONS
+// ═══════════════════════════════════════════
+
+model ClientOnboardingItem {
+  id          String    @id @default(cuid())
+  clientId    String
+  phase       String
+  title       String
+  isComplete  Boolean   @default(false)
+  sortOrder   Int       @default(0)
+  completedAt DateTime?
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+}
+
+model SLAMetric {
+  id        String   @id @default(cuid())
+  clientId  String
+  metric    String // response_time, uptime, bug_resolution
+  target    Float
+  actual    Float
+  period    String // monthly period identifier
+  breached  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@index([clientId])
+}
+
+model ClientInteraction {
+  id        String   @id @default(cuid())
+  clientId  String
+  type      String // call, email, meeting, note, chat
+  text      String
+  authorId  String?
+  createdAt DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+}
+
+// ═══════════════════════════════════════════
+// 8. DOCUMENTS & INVOICING
+// ═══════════════════════════════════════════
+
+model DocumentTemplate {
+  id        String   @id @default(cuid())
+  type      String // proposal, contract, invoice, sow, nda
+  name      String
+  fileUrl   String
+  createdAt DateTime @default(now())
+}
+
+model Document {
+  id              String    @id @default(cuid())
+  clientId        String?
+  type            String
+  title           String
+  content         String? // rich text content
+  version         Int       @default(1)
+  authorId        String?
+  signatureId     String?   @unique
+  signedAt        DateTime?
+  signatureExpiry DateTime?
+  status          String    @default("draft") // draft, sent, signed, expired
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  client Client? @relation(fields: [clientId], references: [id])
+  author User?   @relation(fields: [authorId], references: [id])
+
+  @@index([clientId])
+}
+
+model Invoice {
+  id                    String    @id @default(cuid())
+  invoiceNumber         String    @unique
+  clientId              String
+  projectId             String? // Required for all new invoices via API enforcement; nullable here for legacy/migration.
+  createdById           String?
+  subtotal              Float
+  taxRate               Float     @default(0)
+  taxAmount             Float     @default(0)
+  total                 Float
+  dueDate               DateTime
+  status                String    @default("draft") // draft, sent, paid, overdue, partial
+  paidAmount            Float     @default(0)
+  qrCodeUrl             String?
+  paymentPageUrl        String?
+  stripePaymentIntentId String?
+  isRecurring           Boolean   @default(false)
+  milestoneId           String?
+  sentAt                DateTime?
+  paidAt                DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  client       Client            @relation(fields: [clientId], references: [id])
+  project      Project?          @relation(fields: [projectId], references: [id])
+  createdBy    User?             @relation(fields: [createdById], references: [id])
+  lineItems    InvoiceLineItem[]
+  payments     Payment[]
+  reminders    PaymentReminder[]
+  installments Installment[]
+
+  @@index([clientId])
+  @@index([projectId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+model InvoiceLineItem {
+  id          String @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Float  @default(1)
+  unitPrice   Float
+  total       Float
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id              String   @id @default(cuid())
+  invoiceId       String
+  amount          Float
+  method          String // visa, mastercard, apple_pay, google_pay, ach, wire
+  stripeFee       Float?
+  stripePaymentId String?
+  status          String   @default("completed")
+  createdAt       DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId])
+}
+
+model PaymentReminder {
+  id        String    @id @default(cuid())
+  invoiceId String
+  type      String // 3_days_before, due_date, 1_day_after, 7_day_overdue, 14_day_overdue
+  sentAt    DateTime?
+  channel   String    @default("email")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model Installment {
+  id        String    @id @default(cuid())
+  invoiceId String
+  amount    Float
+  dueDate   DateTime
+  status    String    @default("pending") // pending, paid, overdue
+  paidAt    DateTime?
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+// ═══════════════════════════════════════════
+// 9. EMPLOYEE & HR
+// ═══════════════════════════════════════════
+
+model OnboardingStep {
+  id          String    @id @default(cuid())
+  userId      String
+  stepNumber  Int
+  title       String
+  isComplete  Boolean   @default(false)
+  isAutomatic Boolean   @default(false)
+  completedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model SalaryRecord {
+  id            String   @id @default(cuid())
+  userId        String
+  amount        Float
+  type          String // monthly, hourly, contract
+  currency      String   @default("USD")
+  effectiveDate DateTime
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model Warning {
+  id        String   @id @default(cuid())
+  userId    String
+  level     Int // 1, 2
+  reason    String
+  letterUrl String?
+  issuedAt  DateTime @default(now())
+  expiresAt DateTime // 3 months after issue
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model PerformanceScore {
+  id             String   @id @default(cuid())
+  userId         String
+  score          Int // 0-100
+  attendance     Float // 20% weight
+  taskCompletion Float // 25%
+  onTimeDelivery Float // 25%
+  behaviour      Float // 15%
+  activity       Float // 15%
+  period         String // week identifier
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, period])
+}
+
+// ═══════════════════════════════════════════
+// 10. ATTENDANCE & PRESENCE
+// ═══════════════════════════════════════════
+
+model AttendanceSession {
+  id                 String    @id @default(cuid())
+  userId             String
+  clockIn            DateTime  @default(now())
+  clockOut           DateTime?
+  duration           Int? // minutes
+  taskId             String?
+  location           String? // office, remote, client_site
+  zone               String?
+  isLate             Boolean   @default(false)
+  idleFlag           Boolean   @default(false)
+  verificationMethod String? // face, manual
+  createdAt          DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([clockIn])
+}
+
+model LeaveRequest {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String // annual, sick, personal
+  startDate  DateTime
+  endDate    DateTime
+  reason     String?
+  status     String   @default("pending") // pending, approved, declined
+  approvedBy String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model BiometricProfile {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  faceVector           Bytes // encrypted
+  enrolledAt           DateTime @default(now())
+  isActive             Boolean  @default(true)
+  acknowledgementDocId String?
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+// ═══════════════════════════════════════════
+// 11. MANAGEMENT & FINANCIALS
+// ═══════════════════════════════════════════
+
+model ProjectProfitability {
+  id          String   @id @default(cuid())
+  projectId   String   @unique
+  revenue     Float    @default(0)
+  actualCost  Float    @default(0)
+  grossMargin Float    @default(0)
+  updatedAt   DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id])
+}
+
+model DecisionLog {
+  id        String   @id @default(cuid())
+  title     String
+  category  String
+  impact    String // low, medium, high
+  rationale String?
+  outcome   String?
+  authorId  String?
+  createdAt DateTime @default(now())
+
+  author User? @relation(fields: [authorId], references: [id])
+}
+
+model HiringPlan {
+  id               String   @id @default(cuid())
+  role             String
+  departmentId     String?
+  triggerCondition String?
+  timeline         String?
+  costEstimate     Float?
+  status           String   @default("planned") // planned, approved, in_progress, hired
+  createdAt        DateTime @default(now())
+}
+
+model RetainerTracking {
+  id           String   @id @default(cuid())
+  clientId     String   @unique
+  monthlyHours Float
+  usedHours    Float    @default(0)
+  period       String // month identifier
+  alertSent    Boolean  @default(false)
+  updatedAt    DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id])
+}
+
+// ═══════════════════════════════════════════
+// 12. SCOPE CHANGES
+// ═══════════════════════════════════════════
+
+model ScopeChange {
+  id             String    @id @default(cuid())
+  projectId      String
+  clientId       String?
+  title          String
+  description    String
+  requestedBy    String
+  timelineImpact String?
+  costImpact     Float?
+  riskImpact     String?
+  status         String    @default("pending") // pending, approved, declined
+  approvedBy     String?
+  approvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id])
+  requester User    @relation(fields: [requestedBy], references: [id])
+
+  @@index([projectId])
+}
+
+// ═══════════════════════════════════════════
+// 13. PROPOSALS & ANALYTICS
+// ═══════════════════════════════════════════
+
+model Proposal {
+  id             String    @id @default(cuid())
+  leadId         String?
+  title          String
+  documentId     String?
+  openCount      Int       @default(0)
+  totalTimeSpent Int? // seconds
+  lastOpenedAt   DateTime?
+  createdAt      DateTime  @default(now())
+
+  lead           Lead?                   @relation(fields: [leadId], references: [id])
+  sectionMetrics ProposalSectionMetric[]
+}
+
+model ProposalSectionMetric {
+  id         String @id @default(cuid())
+  proposalId String
+  section    String
+  timeSpent  Int // seconds
+  attention  Float // percentage
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+}
+
+// ═══════════════════════════════════════════
+// 14. KNOWLEDGE BASE & SURVEYS
+// ═══════════════════════════════════════════
+
+model KnowledgeArticle {
+  id         String   @id @default(cuid())
+  title      String
+  content    String
+  category   String
+  department String?
+  authorId   String?
+  viewCount  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  author User? @relation(fields: [authorId], references: [id])
+}
+
+model PulseSurvey {
+  id        String   @id @default(cuid())
+  period    String   @unique // YYYY-MM
+  questions Json // 5 questions
+  sentAt    DateTime
+  createdAt DateTime @default(now())
+
+  responses PulseResponse[]
+}
+
+model PulseResponse {
+  id        String   @id @default(cuid())
+  surveyId  String
+  userId    String // stored but never exposed with scores
+  answers   Json // { q1: 1-5, q2: 1-5, ... }
+  createdAt DateTime @default(now())
+
+  survey PulseSurvey @relation(fields: [surveyId], references: [id])
+  user   User        @relation(fields: [userId], references: [id])
+}
+
+// ═══════════════════════════════════════════
+// 15. NOTIFICATIONS & BROADCASTS
+// ═══════════════════════════════════════════
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  message   String?
+  link      String?
+  isRead    Boolean  @default(false)
+  channel   String   @default("in_app") // in_app, email, sms
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+}
+
+model Broadcast {
+  id            String   @id @default(cuid())
+  authorId      String
+  type          String // announcement, urgent, update
+  message       String
+  recipientType String // all, department, individual
+  recipientId   String?
+  isPinned      Boolean  @default(false)
+  requiresAck   Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  author   User               @relation("BroadcastAuthor", fields: [authorId], references: [id])
+  receipts BroadcastReceipt[]
+}
+
+model BroadcastReceipt {
+  id             String    @id @default(cuid())
+  broadcastId    String
+  userId         String
+  acknowledged   Boolean   @default(false)
+  acknowledgedAt DateTime?
+  readAt         DateTime?
+
+  broadcast Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@unique([broadcastId, userId])
+}
+
+// ═══════════════════════════════════════════
+// 16. CLIENT INTELLIGENCE (v2.0 NEW)
+// ═══════════════════════════════════════════
+
+model ClientHealthRecord {
+  id        String   @id @default(cuid())
+  clientId  String
+  score     Int // 0-100
+  band      String // healthy, stable, at_risk, critical
+  signals   Json // breakdown of signals
+  period    String // week identifier
+  createdAt DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@index([clientId, period])
+}
+
+model NPSSurvey {
+  id          String    @id @default(cuid())
+  clientId    String
+  score       Int? // 0-10
+  feedback    String?
+  triggerType String // milestone, project_complete
+  triggerId   String?
+  sentAt      DateTime
+  respondedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  client Client @relation(fields: [clientId], references: [id])
+}
+
+model Contract {
+  id                String   @id @default(cuid())
+  clientId          String
+  startDate         DateTime
+  endDate           DateTime
+  value             Float
+  status            String   @default("active") // active, expiring, renewed, expired
+  renewalScore      Int?
+  renewalProposalId String?
+  createdAt         DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@index([clientId])
+  @@index([endDate])
+}
+
+// ═══════════════════════════════════════════
+// 17. AI ENGINE (v2.0 NEW)
+// ═══════════════════════════════════════════
+
+model TaskRecommendation {
+  id          String    @id @default(cuid())
+  userId      String
+  taskId      String?
+  type        String // priority_shift, skill_match, deadline_risk, capacity_fill, dependency_unblock
+  title       String
+  rationale   String
+  confidence  Int // 0-100
+  outcome     String? // accepted, rejected, ignored
+  respondedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+}
+
+model AIDigest {
+  id        String    @id @default(cuid())
+  type      String // daily_ceo, weekly_risk, weekly_health
+  content   Json
+  sentAt    DateTime?
+  period    String
+  createdAt DateTime  @default(now())
+}
+
+model TrainingDataExport {
+  id          String   @id @default(cuid())
+  dataTypes   Json // string[]
+  recordCount Int
+  piiMode     String // redacted, anonymized
+  exportUrl   String?
+  createdAt   DateTime @default(now())
+}
+
+// ═══════════════════════════════════════════
+// 18. EMAIL & COMMUNICATION (v2.0 NEW)
+// ═══════════════════════════════════════════
+
+model EmailThread {
+  id            String   @id @default(cuid())
+  clientId      String?
+  subject       String
+  externalId    String? // email provider thread ID
+  lastMessageAt DateTime
+  createdAt     DateTime @default(now())
+
+  client   Client?        @relation(fields: [clientId], references: [id])
+  messages EmailMessage[]
+
+  @@index([clientId])
+}
+
+model EmailMessage {
+  id        String   @id @default(cuid())
+  threadId  String
+  direction String // inbound, outbound
+  fromEmail String
+  toEmail   String
+  subject   String
+  body      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  thread EmailThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+}
+
+// ═══════════════════════════════════════════
+// 19. RISK REGISTER (v2.0 NEW)
+// ═══════════════════════════════════════════
+
+model Risk {
+  id         String   @id @default(cuid())
+  projectId  String
+  title      String
+  category   String // technical, client, timeline, financial, compliance
+  likelihood String // low, medium, high
+  impact     String // low, medium, high
+  riskScore  Int // likelihood x impact
+  mitigation String?
+  ownerId    String?
+  status     String   @default("open") // open, mitigated, accepted, closed
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id])
+  owner   User?   @relation(fields: [ownerId], references: [id])
+
+  @@index([projectId])
+}
+
+// ═══════════════════════════════════════════
+// 20. CONTRACTORS (v2.0 NEW)
+// ═══════════════════════════════════════════
+
+model ContractorProfile {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  hourlyRate    Float
+  contractStart DateTime
+  contractEnd   DateTime?
+  deliverables  String?
+  paymentTerms  String?
+  status        String    @default("active")
+  createdAt     DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model ContractorPayment {
+  id           String    @id @default(cuid())
+  contractorId String
+  amount       Float
+  projectId    String?
+  description  String?
+  paidAt       DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+// ═══════════════════════════════════════════
+// 21. INTEGRATIONS (Stripe, OpenAI, Resend, etc.)
+// ═══════════════════════════════════════════
+
+model Integration {
+  id           String    @id @default(cuid())
+  name         String    @unique // stripe, openai, resend, twilio, google_calendar, slack
+  isActive     Boolean   @default(false)
+  config       Json? // encrypted API keys and settings
+  lastTestedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// ═══════════════════════════════════════════
+// 22. CONTEXTUAL COMMENTS (replaces general chat)
+// ═══════════════════════════════════════════
+
+enum CommentEntity {
+  LEAD
+  DEAL
+  CLIENT
+  PROJECT
+  TASK
+  MILESTONE
+  INVOICE
+  DOCUMENT
+  RISK
+}
+
+model Comment {
+  id         String        @id @default(cuid())
+  entityType CommentEntity
+  entityId   String
+  authorId   String
+  body       String
+  mentions   Json? // array of userIds mentioned via @
+  parentId   String? // for threaded replies
+  editedAt   DateTime?
+  createdAt  DateTime      @default(now())
+
+  parent  Comment?  @relation("CommentThread", fields: [parentId], references: [id])
+  replies Comment[] @relation("CommentThread")
+
+  @@index([entityType, entityId])
+  @@index([authorId])
+  @@index([createdAt])
+}
+
+// ═══════════════════════════════════════════
+// 23. ACTION ENGINE (rule-driven automation)
+// ═══════════════════════════════════════════
+
+enum ActionTrigger {
+  INVOICE_OVERDUE
+  INVOICE_DUE_SOON
+  LEAD_STALE // no activity N days
+  LEAD_IN_STAGE_TOO_LONG
+  PROJECT_PAST_DUE
+  PROJECT_NO_UPDATE
+  MILESTONE_DUE_SOON
+  TASK_OVERDUE
+  CONTRACT_EXPIRING
+  SLA_BREACH
+  NPS_LOW
+}
+
+enum ActionType {
+  NOTIFY_USER
+  NOTIFY_ROLE
+  EMAIL
+  CREATE_TASK
+  ESCALATE
+  WEBHOOK
+}
+
+model ActionRule {
+  id         String        @id @default(cuid())
+  name       String
+  trigger    ActionTrigger
+  actionType ActionType
+  config     Json // { thresholdDays?, recipientRole?, template?, ... }
+  isActive   Boolean       @default(true)
+  lastRunAt  DateTime?
+  runCount   Int           @default(0)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  scheduled ScheduledAction[]
+
+  @@index([trigger, isActive])
+}
+
+model ScheduledAction {
+  id           String    @id @default(cuid())
+  ruleId       String
+  entityType   String // "invoice" | "lead" | "project" | "task" | "milestone" | "contract" | "client"
+  entityId     String
+  scheduledFor DateTime
+  executedAt   DateTime?
+  status       String    @default("pending") // pending, executed, failed, skipped
+  result       Json? // { ok: bool, error?: string, notificationIds?: [] }
+  attempts     Int       @default(0)
+  createdAt    DateTime  @default(now())
+
+  rule ActionRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledFor])
+  @@index([entityType, entityId])
+}
+
+// ═══════════════════════════════════════════
+// 24. INTEGRATIONS
+// ═══════════════════════════════════════════
+
+model WebhookEvent {
+  id          String    @id @default(cuid())
+  source      String // stripe, google, etc.
+  eventType   String
+  payload     Json
+  status      String    @default("received") // received, processed, failed
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([source, eventType])
+  @@index([createdAt])
+}

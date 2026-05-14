@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+dist/
+build/
+.next/
+
+# Environment & Secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.production
+server/.env
+client/.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code (per-user settings + session data)
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+playwright-report/
+test-results/
+.playwright/
+
+# Prisma
+server/prisma/*.db
+server/prisma/migrations/
+
+# Uploads
+server/uploads/*
+!server/uploads/.gitkeep
+
+# Temp
+*.tmp
+.cache/

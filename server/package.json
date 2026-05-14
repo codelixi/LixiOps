@@ -1,0 +1,48 @@
+{
+  "name": "lixiops-server",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:seed:demo": "tsx prisma/seed.ts --demo"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.5.0",
+    "@types/multer": "^2.1.0",
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.34.8",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "ioredis": "^5.6.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "multer": "^2.1.1",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.1",
+    "stripe": "^22.0.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/morgan": "^1.9.9",
+    "@types/node": "^22.13.10",
+    "@types/qrcode": "^1.5.6",
+    "prisma": "^6.5.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}
