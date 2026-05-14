@@ -4,6 +4,8 @@ import { PrismaClient } from '@prisma/client'
 import { AppError } from '../middleware/errorHandler.js'
 import { requireManager, requireCEO } from '../middleware/authenticate.js'
 import { emitToUser, emitToUsers } from '../lib/realtime.js'
+import { sendEmail, buildEmail } from '../lib/email.js'
+import { env } from '../lib/env.js'
 
 const prisma = new PrismaClient()
 const router = Router()
@@ -142,22 +144,52 @@ router.post('/', requireManager, async (req: Request, res: Response, next: NextF
   })
 
   // Push a notification per recipient so the bell badge updates instantly.
+  const otherRecipientIds = recipientUserIds.filter((uid) => uid !== req.user!.userId)
   await prisma.notification.createMany({
-    data: recipientUserIds
-      .filter((uid) => uid !== req.user!.userId)
-      .map((uid) => ({
-        userId: uid,
-        type: parse.data.type === 'urgent' ? 'broadcast_urgent' : 'broadcast',
-        title:
-          parse.data.type === 'urgent'
-            ? `Urgent broadcast from ${broadcast.author.name}`
-            : `New broadcast from ${broadcast.author.name}`,
-        message: parse.data.message.slice(0, 200),
-        link: '/broadcasts',
-        channel: 'in_app',
-      })),
+    data: otherRecipientIds.map((uid) => ({
+      userId: uid,
+      type: parse.data.type === 'urgent' ? 'broadcast_urgent' : 'broadcast',
+      title:
+        parse.data.type === 'urgent'
+          ? `Urgent broadcast from ${broadcast.author.name}`
+          : `New broadcast from ${broadcast.author.name}`,
+      message: parse.data.message.slice(0, 200),
+      link: '/broadcasts',
+      channel: 'in_app',
+    })),
   })
-  emitToUsers(recipientUserIds.filter((uid) => uid !== req.user!.userId), 'notification:new')
+  emitToUsers(otherRecipientIds, 'notification:new')
+
+  // For URGENT broadcasts also send email — in-app bell isn't enough.
+  if (parse.data.type === 'urgent' && otherRecipientIds.length > 0) {
+    const recipients = await prisma.user.findMany({
+      where: { id: { in: otherRecipientIds } },
+      select: { email: true, name: true },
+    })
+    const broadcastsUrl = `${env.CORS_ORIGIN}/broadcasts`
+    for (const r of recipients) {
+      void sendEmail({
+        to: r.email,
+        subject: `[Urgent] ${broadcast.author.name} sent a broadcast`,
+        html: buildEmail({
+          heading: 'Urgent broadcast',
+          body: `
+            <p>${broadcast.author.name} sent an urgent broadcast you should see right away:</p>
+            <blockquote style="margin:16px 0;padding:12px 16px;border-left:3px solid #ff5b01;background:#fafafa;color:#262626;border-radius:0 8px 8px 0;font-size:14px;line-height:1.5;">
+              ${parse.data.message
+                .slice(0, 1000)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\n/g, '<br>')}
+            </blockquote>
+          `,
+          cta: { label: 'Open in LixiOps', url: broadcastsUrl },
+          footer: 'Urgent broadcasts are also delivered by email so you see them off-app.',
+        }),
+      })
+    }
+  }
 
   res.status(201).json({ broadcast })
 })

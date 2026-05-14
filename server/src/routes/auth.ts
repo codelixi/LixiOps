@@ -7,6 +7,8 @@ import { signToken, signRefreshToken, authenticate } from '../middleware/authent
 import { AppError } from '../middleware/errorHandler.js'
 import { loginLimiter, otpLimiter } from '../middleware/rateLimiter.js'
 import { logAuthAttempt } from '../services/auditLog.js'
+import { sendEmail, buildEmail } from '../lib/email.js'
+import { env } from '../lib/env.js'
 
 const prisma = new PrismaClient()
 
@@ -138,12 +140,27 @@ authRouter.post('/login', loginLimiter, async (req, res, next) => {
       attempts: 0,
     })
 
-    // In development, log OTP to console
+    // Send the OTP via email. Fire-and-forget so a slow SMTP provider
+    // can't block the login response (the user sees "code sent" while
+    // the email completes in the background). If sending fails, the
+    // OTP still lives in the in-memory store + dev console.
     if (process.env.NODE_ENV === 'development') {
       console.log(`[OTP] Code for ${email}: ${code}`)
     }
+    void sendEmail({
+      to: email,
+      subject: `${code} is your LixiOps verification code`,
+      html: buildEmail({
+        heading: 'Your verification code',
+        body: `
+          <p>Use this code to finish signing in to LixiOps:</p>
+          <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:24px 0;color:#171717;font-family:monospace;">${code}</p>
+          <p style="color:#a3a3a3;">This code expires in <strong>2 minutes</strong>. If you didn't try to sign in, you can safely ignore this email — but you may want to rotate your password.</p>
+        `,
+        footer: `LixiOps · Sent because someone tried to sign in to ${email}.`,
+      }),
+    })
 
-    // TODO: Send OTP via Resend email API
     logAuthAttempt(req, true, email)
 
     // Never expose OTP in response
@@ -239,19 +256,43 @@ authRouter.post('/forgot-password', loginLimiter, async (req, res, next) => {
   try {
     const { email } = resetRequestSchema.parse(req.body)
 
-    // Generate reset token — always return success (prevent email enumeration)
-    const token = crypto.randomBytes(32).toString('hex')
-    const hashedToken = crypto.createHash('sha256').update(token).digest('hex')
+    // Only send the email if the account actually exists, but ALWAYS return
+    // success regardless — prevents email enumeration via response timing
+    // and body content. The token is only stored when the user exists.
+    const user = await prisma.user.findUnique({ where: { email }, select: { id: true, isActive: true, name: true } })
 
-    resetTokenStore.set(hashedToken, {
-      email,
-      expiresAt: Date.now() + RESET_TOKEN_EXPIRY_MS,
-      used: false,
-    })
+    if (user && user.isActive) {
+      const token = crypto.randomBytes(32).toString('hex')
+      const hashedToken = crypto.createHash('sha256').update(token).digest('hex')
 
-    // TODO: Send reset email via Resend
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[RESET] Token for ${email}: ${token}`)
+      resetTokenStore.set(hashedToken, {
+        email,
+        expiresAt: Date.now() + RESET_TOKEN_EXPIRY_MS,
+        used: false,
+      })
+
+      const resetUrl = `${env.CORS_ORIGIN}/auth/reset?token=${token}`
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[RESET] Token for ${email}: ${token}`)
+        console.log(`[RESET] Link: ${resetUrl}`)
+      }
+
+      // Fire-and-forget so the response stays fast + identical timing for
+      // existing/non-existing accounts.
+      void sendEmail({
+        to: email,
+        subject: 'Reset your LixiOps password',
+        html: buildEmail({
+          heading: 'Reset your password',
+          body: `
+            <p>Hi ${user.name ? escapeName(user.name) : 'there'},</p>
+            <p>We received a request to reset your LixiOps password. Click the button below to choose a new one. The link expires in <strong>1 hour</strong>.</p>
+          `,
+          cta: { label: 'Reset password', url: resetUrl },
+          footer: "If you didn't request this, ignore this email — your password won't change.",
+        }),
+      })
     }
 
     // Always same response — prevents email enumeration attacks
@@ -262,6 +303,10 @@ authRouter.post('/forgot-password', loginLimiter, async (req, res, next) => {
     next(err)
   }
 })
+
+function escapeName(s: string): string {
+  return s.replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`)
+}
 
 // ═══════════════════════════════════════════
 // POST /api/v1/auth/reset-password
