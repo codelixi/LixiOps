@@ -25,9 +25,20 @@ export function OTPPage() {
   const [error, setError] = useState('')
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
   const pendingEmail = typeof window !== 'undefined' ? sessionStorage.getItem(PENDING_EMAIL_KEY) : null
+  // Ref (not state) so it updates synchronously without triggering a re-render.
+  // Without this guard, the verify flow has a race: we clear pendingEmail in
+  // sessionStorage as part of handleSubmit, then call navigate('/dashboard').
+  // React re-renders the OTPPage one more time before unmount; pendingEmail is
+  // re-read from sessionStorage (now null), the guard useEffect below fires
+  // navigate('/auth/login') AFTER our /dashboard navigation, and the user
+  // lands back at login. Setting this ref before clearing skips that effect.
+  const submittedRef = useRef(false)
 
   useEffect(() => {
-    // If someone lands on /auth/verify without a pending email, bounce back.
+    // Skip the guard if we just verified successfully — the missing
+    // pendingEmail is intentional and we're already navigating to /dashboard.
+    if (submittedRef.current) return
+    // Otherwise: if someone lands here without a pending email, bounce back.
     if (!pendingEmail) {
       navigate('/auth/login', { replace: true })
       return
@@ -88,6 +99,9 @@ export function OTPPage() {
         email: pendingEmail,
         otp: code,
       })
+      // Mark success BEFORE clearing sessionStorage so the bounce-back
+      // useEffect skips during the re-render that follows.
+      submittedRef.current = true
       sessionStorage.removeItem(PENDING_EMAIL_KEY)
       login(
         {
@@ -98,7 +112,9 @@ export function OTPPage() {
         },
         res.data.accessToken,
       )
-      navigate('/dashboard')
+      // replace:true drops this page from history so back-button doesn't
+      // land the user on a now-meaningless verify screen.
+      navigate('/dashboard', { replace: true })
     } catch (err: any) {
       setError((err?.message || 'Verification failed').replace(/^\[\d+\]\s*/, ''))
     } finally {
