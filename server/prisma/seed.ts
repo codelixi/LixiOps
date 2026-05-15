@@ -23,7 +23,10 @@ const prisma = new PrismaClient()
 const BCRYPT_COST = 12
 
 // Read CEO bootstrap creds from env so production never has the default in code.
-const CEO_EMAIL = process.env.SEED_CEO_EMAIL ?? 'ceo@lixiops.local'
+// IMPORTANT: lowercase the email — the login route normalizes via Zod's
+// toLowerCase(), so the stored email must match the lowercased form or lookups
+// fail silently with a 401.
+const CEO_EMAIL = (process.env.SEED_CEO_EMAIL ?? 'ceo@lixiops.local').trim().toLowerCase()
 const CEO_PASSWORD = process.env.SEED_CEO_PASSWORD ?? 'ChangeMe123!'
 const CEO_NAME = process.env.SEED_CEO_NAME ?? 'CEO'
 

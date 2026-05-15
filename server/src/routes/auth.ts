@@ -143,8 +143,12 @@ authRouter.post('/login', loginLimiter, async (req, res, next) => {
     // Send the OTP via email. Fire-and-forget so a slow SMTP provider
     // can't block the login response (the user sees "code sent" while
     // the email completes in the background). If sending fails, the
-    // OTP still lives in the in-memory store + dev console.
-    if (process.env.NODE_ENV === 'development') {
+    // OTP still lives in the in-memory store + console.
+    //
+    // OTP is logged to console in development AND when LOG_OTP=true is
+    // set (deploy-day escape hatch — disable once email is confirmed
+    // working in production by removing the LOG_OTP env var).
+    if (process.env.NODE_ENV === 'development' || process.env.LOG_OTP === 'true') {
       console.log(`[OTP] Code for ${email}: ${code}`)
     }
     void sendEmail({
@@ -273,7 +277,7 @@ authRouter.post('/forgot-password', loginLimiter, async (req, res, next) => {
 
       const resetUrl = `${env.CORS_ORIGIN}/auth/reset?token=${token}`
 
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV === 'development' || process.env.LOG_OTP === 'true') {
         console.log(`[RESET] Token for ${email}: ${token}`)
         console.log(`[RESET] Link: ${resetUrl}`)
       }
